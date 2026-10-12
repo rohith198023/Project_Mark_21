@@ -209,6 +209,66 @@ APP_REGISTRY = [
     }
 ]
 
+LAST_WA_CONTACT: Optional[str] = None
+
+def focus_whatsapp_window() -> bool:
+    """Brings WhatsApp to foreground on Windows."""
+    if not IS_WINDOWS:
+        return False
+    try:
+        import win32gui, win32con
+        matched_hwnds = []
+        def _enum_cb(hwnd, _):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd).lower()
+                cname = win32gui.GetClassName(hwnd).lower()
+                if "whatsapp" in title or "whatsapp" in cname:
+                    matched_hwnds.append(hwnd)
+            return True
+        win32gui.EnumWindows(_enum_cb, None)
+        if matched_hwnds:
+            hwnd = matched_hwnds[0]
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            win32gui.SetForegroundWindow(hwnd)
+            logger.info(f"Focused WhatsApp window (hwnd={hwnd})")
+            return True
+    except Exception as e:
+        logger.warning(f"Could not focus WhatsApp window: {e}")
+    return False
+
+def extract_whatsapp_details(user_input_raw: str, params: dict = None) -> tuple[Optional[str], Optional[str]]:
+    """Extracts recipient contact and message text from various speech/text variations."""
+    params = params or {}
+    wa_contact = params.get("contact") or params.get("recipient")
+    wa_msg = params.get("message") or params.get("text")
+
+    if wa_contact and wa_msg:
+        return str(wa_contact).strip(), str(wa_msg).strip()
+
+    text = user_input_raw.strip()
+
+    # Pattern: message/text <contact> saying/that/: <msg>
+    m = re.search(r"\b(?:text|msg|message|send\s+message\s+to|send\s+msg\s+to)\s+([a-zA-Z0-9_\-\.]+)\s+(?:saying|that|with\s+text|with\s+message|\:)\s*(.*)", text, re.IGNORECASE)
+    if m:
+        c = m.group(1).strip()
+        msg = m.group(2).strip()
+        return (wa_contact or c), (wa_msg or msg)
+
+    # Pattern: message/text <contact> <msg> (e.g. "open WhatsApp and message Siddhartha hello")
+    m = re.search(r"\b(?:text|msg|message|send\s+message\s+to|send\s+msg\s+to)\s+([a-zA-Z0-9_\-\.]+)\s+(hello.*|hi.*|hey.*|where.*|how.*|can.*|please.*|call.*|i\s+.*|we\s+.*|good\s+.*|are\s+.*|what.*)", text, re.IGNORECASE)
+    if m:
+        c = m.group(1).strip()
+        msg = m.group(2).strip()
+        return (wa_contact or c), (wa_msg or msg)
+
+    # Pattern: message/text <contact> (no message, e.g. "open WhatsApp and message Siddhartha")
+    m = re.search(r"\b(?:text|msg|message|send\s+message\s+to|send\s+msg\s+to)\s+([a-zA-Z0-9_\-\.]+)", text, re.IGNORECASE)
+    if m:
+        c = m.group(1).strip()
+        return (wa_contact or c), wa_msg
+
+    return wa_contact, wa_msg
+
 def clean_desktop_query(query: str, action: str) -> str:
     """Cleans command verbs and structural filler words from queries using word boundaries to avoid corruption."""
     if action == "open":
@@ -516,6 +576,8 @@ def execute_desktop_action(task: Task):
         success = False
         error_msg = None
         resolved_path_or_uri = resolved_name
+        output_text = None
+        global LAST_WA_CONTACT
 
         # Stage C: Choose Launch Strategy
         # Strategy 1: URI/protocol launch
@@ -532,77 +594,94 @@ def execute_desktop_action(task: Task):
                 if matched_entry["canonical"] == "whatsapp" and pyautogui_available:
                     import urllib.parse
                     params = task.parameters or {}
-                    wa_msg = params.get("message") or params.get("text")
-                    wa_contact = params.get("contact") or params.get("recipient")
-
-                    if not wa_msg or not wa_contact:
-                        m = re.search(r"\b(?:text|msg|message|saying)\s+([a-zA-Z0-9_\-\.]+)\s*(?:\.\.|\:|\-|,|\s)\s*(.*)", user_input_raw, re.IGNORECASE)
-                        if m:
-                            if not wa_contact:
-                                wa_contact = m.group(1).strip()
-                            if not wa_msg:
-                                wa_msg = m.group(2).strip()
-                        elif not wa_contact:
-                            m2 = re.search(r"\b(?:text|msg|message)\s+([a-zA-Z0-9_\-\.]+)", user_input_raw, re.IGNORECASE)
-                            if m2:
-                                wa_contact = m2.group(1).strip()
+                    wa_contact, wa_msg = extract_whatsapp_details(user_input_raw, params)
 
                     # Filter out generic words like 'someone' or 'anyone'
                     generic_recipients = {"someone", "anyone", "somebody", "anybody", "person", "friend"}
                     if wa_contact and wa_contact.lower().strip() in generic_recipients:
                         wa_contact = None
 
-                    # If phone number (all digits)
+                    # 1. Phone number direct URI
                     if wa_contact and wa_contact.replace("+", "").replace("-", "").replace(" ", "").isdigit() and wa_msg:
                         try:
                             clean_phone = wa_contact.replace("+", "").replace("-", "").replace(" ", "")
                             phone_uri = f"whatsapp://send?phone={clean_phone}&text={urllib.parse.quote(wa_msg)}"
                             os.startfile(phone_uri)
                             strategy_used = f"WhatsApp opened direct chat with +{clean_phone} and prepared message: '{wa_msg}'"
+                            output_text = f"Opened WhatsApp and prepared message for +{clean_phone} according to your command: '{wa_msg}'."
                         except Exception as e:
                             logger.warning(f"Phone URI failed: {e}")
 
-                    # If no specific contact, but there is a message (or generic 'someone')
-                    elif not wa_contact and wa_msg:
-                        try:
-                            send_uri = f"whatsapp://send?text={urllib.parse.quote(wa_msg)}"
-                            os.startfile(send_uri)
-                            strategy_used = f"WhatsApp opened with prepared message: '{wa_msg}' (select contact to send)"
-                        except Exception as e:
-                            logger.warning(f"Send URI failed: {e}")
-
-                    # If generic 'someone' without message: open new chat / search
-                    elif not wa_contact and not wa_msg and "text" in user_input_raw.lower():
-                        time.sleep(1.8)
-                        try:
-                            pyautogui.hotkey('ctrl', 'n')
-                            strategy_used = "Opened WhatsApp and launched New Chat selector"
-                        except Exception as e:
-                            strategy_used = "Opened WhatsApp"
-
-                    # If contact name is given (e.g. 'rahul', 'motati', 'mom')
-                    elif wa_contact:
+                    # 2. Contact name and message provided (e.g. 'open WhatsApp and message Siddhartha hello')
+                    elif wa_contact and wa_msg:
                         logger.info(f"WhatsApp automation: contact='{wa_contact}', message='{wa_msg}'")
-                        time.sleep(2.0)
+                        time.sleep(1.2)
                         try:
                             import pyperclip
+                            focus_whatsapp_window()
+                            time.sleep(0.3)
                             pyautogui.hotkey('ctrl', 'f')
-                            time.sleep(0.5)
+                            time.sleep(0.4)
                             pyperclip.copy(wa_contact.strip(' .'))
                             pyautogui.hotkey('ctrl', 'v')
                             time.sleep(1.0)
                             pyautogui.press('enter')
-                            time.sleep(0.6)
-                            if wa_msg:
-                                pyperclip.copy(wa_msg.strip(' .'))
-                                pyautogui.hotkey('ctrl', 'v')
-                                time.sleep(0.4)
-                                pyautogui.press('enter')
-                                strategy_used = f"WhatsApp opened chat with '{wa_contact}' and sent: '{wa_msg}'"
-                            else:
-                                strategy_used = f"WhatsApp opened chat with '{wa_contact}'"
+                            time.sleep(0.8)
+                            pyperclip.copy(wa_msg.strip(' .'))
+                            pyautogui.hotkey('ctrl', 'v')
+                            time.sleep(0.4)
+                            pyautogui.press('enter')
+                            strategy_used = f"WhatsApp opened chat with '{wa_contact}' and sent: '{wa_msg}'"
+                            output_text = f"Opened WhatsApp and sent message to {wa_contact} according to your command: '{wa_msg}'."
+                            LAST_WA_CONTACT = None
                         except Exception as auto_err:
                             logger.warning(f"WhatsApp typing automation warning: {auto_err}")
+
+                    # 3. Contact name provided without message (e.g. 'open WhatsApp and message Siddhartha')
+                    elif wa_contact and not wa_msg:
+                        logger.info(f"WhatsApp automation: contact='{wa_contact}', awaiting message")
+                        time.sleep(1.2)
+                        try:
+                            import pyperclip
+                            focus_whatsapp_window()
+                            time.sleep(0.3)
+                            pyautogui.hotkey('ctrl', 'f')
+                            time.sleep(0.4)
+                            pyperclip.copy(wa_contact.strip(' .'))
+                            pyautogui.hotkey('ctrl', 'v')
+                            time.sleep(1.0)
+                            pyautogui.press('enter')
+                            strategy_used = f"WhatsApp opened chat with '{wa_contact}'"
+                            output_text = f"Opened WhatsApp and selected {wa_contact}'s chat according to your command. What message would you like to send?"
+                            LAST_WA_CONTACT = wa_contact
+                        except Exception as auto_err:
+                            logger.warning(f"WhatsApp typing automation warning: {auto_err}")
+
+                    # 4. Message only without contact (or generic someone)
+                    elif not wa_contact and wa_msg:
+                        try:
+                            send_uri = f"whatsapp://send?text={urllib.parse.quote(wa_msg)}"
+                            os.startfile(send_uri)
+                            strategy_used = f"WhatsApp opened with prepared message: '{wa_msg}'"
+                            output_text = f"Opened WhatsApp with prepared message according to your command: '{wa_msg}'."
+                        except Exception as e:
+                            logger.warning(f"Send URI failed: {e}")
+
+                    # 5. Generic 'someone' or 'new chat'
+                    elif not wa_contact and not wa_msg and any(kw in user_input_raw.lower() for kw in ["someone", "anyone", "new chat"]):
+                        time.sleep(1.5)
+                        try:
+                            pyautogui.hotkey('ctrl', 'n')
+                            strategy_used = "Opened WhatsApp and launched New Chat selector"
+                            output_text = "Opened WhatsApp and launched New Chat selector according to your command."
+                        except Exception as e:
+                            strategy_used = "Opened WhatsApp"
+                            output_text = "Opened WhatsApp according to your command."
+
+                    # 6. Default open WhatsApp
+                    else:
+                        strategy_used = "Opened WhatsApp"
+                        output_text = "Opened WhatsApp according to your command."
             except Exception as e:
                 error_msg = f"URI launch failed: {str(e)}"
                 logger.warning(error_msg)
@@ -737,26 +816,18 @@ def execute_desktop_action(task: Task):
                             if any(term in title for term in search_terms):
                                 logger.info(f"Stage D: Launch result SUCCESS (verified window '{win.window_text()}')")
                                 app_verified = True
-                                return ActionResult(
-                                    success=True,
-                                    output=f"Opened {resolved_name} via {strategy_used} (verified window: '{win.window_text()}')",
-                                    match_type=match_type,
-                                    resolved_app=resolved_path_or_uri,
-                                    launch_strategy=strategy_used,
-                                    verification_status="verified_window"
-                                )
+                                break
                 except Exception as verify_err:
                     logger.warning(f"Error checking windows for verification: {verify_err}")
             
-            # If not verified
-            logger.warning(f"Stage D: Launch success but could not verify window appearance for '{resolved_name}'")
+            final_output = output_text if output_text else f"Opened {resolved_name.replace('_', ' ').title()} according to your command."
             return ActionResult(
                 success=True,
-                output=f"Opened {resolved_name} via {strategy_used} (window not verified)",
+                output=final_output,
                 match_type=match_type,
                 resolved_app=resolved_path_or_uri,
                 launch_strategy=strategy_used,
-                verification_status="window_not_verified"
+                verification_status="verified_window" if app_verified else "window_not_verified"
             )
         
         # If execution failed on Windows

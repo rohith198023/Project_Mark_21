@@ -504,10 +504,10 @@ async def run_task_execution(task: Task) -> tuple[str, List[Dict[str, Any]]]:
                     })
 
                     if success:
-                        response_text += f" [Executed: {output}]"
+                        response_text = output
                         task.status = TaskStatus.SUCCESS
                     else:
-                        response_text += f" [Failed: {error}]"
+                        response_text = f"Action failed: {error}"
                         task.status = TaskStatus.FAILED
                 else:
                     actions_taken.append({

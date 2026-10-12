@@ -96,6 +96,18 @@ Your ONLY job is to convert a raw user instruction into a structured JSON task o
 Input: "hello I am audible"
 Output: {"schema_version":"1.0","raw_user_input":"hello I am audible","intent":"conversation","target_agent":"system","action":"reply","target":null,"parameters":{},"confidence":0.99,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"User is greeting and testing audio audibility; conversational reply required."}
 
+Input: "open whatsapp"
+Output: {"schema_version":"1.0","raw_user_input":"open whatsapp","intent":"open_app","target_agent":"desktop","action":"open","target":"whatsapp","parameters":{},"confidence":0.98,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"User wants to open WhatsApp."}
+
+Input: "open what's app"
+Output: {"schema_version":"1.0","raw_user_input":"open what's app","intent":"open_app","target_agent":"desktop","action":"open","target":"whatsapp","parameters":{},"confidence":0.98,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"User wants to open WhatsApp."}
+
+Input: "open WhatsApp and message Siddhartha"
+Output: {"schema_version":"1.0","raw_user_input":"open WhatsApp and message Siddhartha","intent":"open_app","target_agent":"desktop","action":"open","target":"whatsapp","parameters":{"contact":"Siddhartha","message":null},"confidence":0.97,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"User wants to open WhatsApp to message Siddhartha."}
+
+Input: "open WhatsApp and message Siddhartha hello"
+Output: {"schema_version":"1.0","raw_user_input":"open WhatsApp and message Siddhartha hello","intent":"open_app","target_agent":"desktop","action":"open","target":"whatsapp","parameters":{"contact":"Siddhartha","message":"hello"},"confidence":0.98,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"User wants to open WhatsApp and message Siddhartha with text hello."}
+
 Input: "open whatsapp and text someone"
 Output: {"schema_version":"1.0","raw_user_input":"open whatsapp and text someone","intent":"open_app","target_agent":"desktop","action":"open","target":"whatsapp","parameters":{},"confidence":0.96,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"User wants to open WhatsApp to message someone."}
 
