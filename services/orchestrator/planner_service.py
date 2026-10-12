@@ -111,6 +111,12 @@ Output: {"schema_version":"1.0","raw_user_input":"open WhatsApp and message Sidd
 Input: "open whatsapp and text someone"
 Output: {"schema_version":"1.0","raw_user_input":"open whatsapp and text someone","intent":"open_app","target_agent":"desktop","action":"open","target":"whatsapp","parameters":{},"confidence":0.96,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"User wants to open WhatsApp to message someone."}
 
+Input: "open YouTube and play rrr song"
+Output: {"schema_version":"1.0","raw_user_input":"open YouTube and play rrr song","intent":"open_app","target_agent":"desktop","action":"open","target":"youtube","parameters":{"query":"rrr song"},"confidence":0.98,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"User wants to open YouTube and play rrr song."}
+
+Input: "open Notepad and write a new nucleus algorithm"
+Output: {"schema_version":"1.0","raw_user_input":"open Notepad and write a new nucleus algorithm","intent":"open_app","target_agent":"desktop","action":"open","target":"notepad","parameters":{"content":"a new nucleus algorithm"},"confidence":0.98,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"User wants to open Notepad and write an algorithm."}
+
 Input: "what is 25 * 14?"
 Output: {"schema_version":"1.0","raw_user_input":"what is 25 * 14?","intent":"conversation","target_agent":"system","action":"reply","target":null,"parameters":{},"confidence":0.99,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"Generic calculation question."}
 

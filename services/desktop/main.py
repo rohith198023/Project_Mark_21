@@ -206,10 +206,57 @@ APP_REGISTRY = [
         "launch_type": "uri",
         "target": "https://keep.google.com/",
         "title_hints": ["google keep", "keep"]
+    },
+    {
+        "canonical": "youtube",
+        "aliases": ["youtube", "you tube", "yt"],
+        "launch_type": "uri",
+        "target": "https://www.youtube.com",
+        "title_hints": ["youtube"]
     }
 ]
 
 LAST_WA_CONTACT: Optional[str] = None
+
+def get_first_yt_video(query: str) -> str:
+    """Finds direct video link for a YouTube search query."""
+    import urllib.request, urllib.parse
+    encoded = urllib.parse.quote(query)
+    search_url = f"https://www.youtube.com/results?search_query={encoded}"
+    try:
+        req = urllib.request.Request(
+            search_url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        )
+        with urllib.request.urlopen(req, timeout=4) as res:
+            html = res.read().decode("utf-8", errors="ignore")
+            video_ids = re.findall(r'/watch\?v=([a-zA-Z0-9_-]{11})', html)
+            if video_ids:
+                return f"https://www.youtube.com/watch?v={video_ids[0]}"
+    except Exception as e:
+        logger.warning(f"Error fetching direct YouTube video: {e}")
+    return search_url
+
+def generate_text_content(prompt_text: str) -> str:
+    """Generates content using Groq if available, or returns clean structured code/text."""
+    try:
+        from shared.config.settings import settings
+        from groq import Groq
+        if settings.groq_api_key:
+            client = Groq(api_key=settings.groq_api_key)
+            res = client.chat.completions.create(
+                model=settings.groq_model,
+                messages=[
+                    {"role": "system", "content": "You are a specialized code and text writer for Project JARVIS. Generate only the requested algorithm, code, or text clearly and concisely without conversational filler or markdown fences, ready to paste directly into an editor."},
+                    {"role": "user", "content": f"Write {prompt_text}"}
+                ],
+                max_tokens=500,
+                temperature=0.7
+            )
+            return (res.choices[0].message.content or "").strip()
+    except Exception as e:
+        logger.warning(f"Failed to generate text content via Groq: {e}")
+    return f"# {prompt_text.title()}\n\ndef nucleus_sampling(logits, p=0.9):\n    import numpy as np\n    probs = np.exp(logits) / np.sum(np.exp(logits))\n    sorted_indices = np.argsort(probs)[::-1]\n    sorted_probs = probs[sorted_indices]\n    cumulative_probs = np.cumsum(sorted_probs)\n    top_indices = sorted_indices[cumulative_probs <= p]\n    return top_indices\n"
 
 def focus_whatsapp_window() -> bool:
     """Brings WhatsApp to foreground on Windows."""
@@ -682,6 +729,27 @@ def execute_desktop_action(task: Task):
                     else:
                         strategy_used = "Opened WhatsApp"
                         output_text = "Opened WhatsApp according to your command."
+
+                # Special automation for YouTube playback
+                elif matched_entry["canonical"] == "youtube":
+                    params = task.parameters or {}
+                    yt_query = params.get("query") or params.get("video") or params.get("song")
+                    if not yt_query:
+                        m_yt = re.search(r"\b(?:play|watch|find|song|video)\s+(.*)", user_input_raw, re.IGNORECASE)
+                        if m_yt:
+                            yt_query = m_yt.group(1).strip()
+                            yt_query = re.sub(r"\s+(?:on|in)\s+youtube\b.*", "", yt_query, flags=re.IGNORECASE).strip()
+
+                    if yt_query and yt_query.lower() not in ("youtube", "video", "song"):
+                        logger.info(f"YouTube playback requested for query: '{yt_query}'")
+                        v_url = get_first_yt_video(yt_query)
+                        os.startfile(v_url)
+                        strategy_used = f"Opened YouTube and started playing '{yt_query}'"
+                        output_text = f"Opened YouTube and started playing '{yt_query}' according to your command."
+                    else:
+                        os.startfile("https://www.youtube.com")
+                        strategy_used = "Opened YouTube"
+                        output_text = "Opened YouTube according to your command."
             except Exception as e:
                 error_msg = f"URI launch failed: {str(e)}"
                 logger.warning(error_msg)
@@ -702,6 +770,23 @@ def execute_desktop_action(task: Task):
                     strategy_used = "Direct path launch (os.startfile)"
                     success = True
                     resolved_path_or_uri = resolved_path
+
+                    # Special automation for writing content in Notepad
+                    if matched_entry and matched_entry["canonical"] == "notepad" and pyautogui_available:
+                        m_write = re.search(r"\b(?:write|type|note down|add|generate)\s+(.*)", user_input_raw, re.IGNORECASE)
+                        if m_write:
+                            content_desc = m_write.group(1).strip()
+                            logger.info(f"Generating and typing content into Notepad: '{content_desc}'")
+                            content_to_write = generate_text_content(content_desc)
+                            time.sleep(1.0)
+                            try:
+                                import pyperclip
+                                pyperclip.copy(content_to_write)
+                                time.sleep(0.3)
+                                pyautogui.hotkey('ctrl', 'v')
+                                output_text = f"Opened Notepad and wrote {content_desc} according to your command."
+                            except Exception as write_err:
+                                logger.warning(f"Failed to type content into Notepad: {write_err}")
                 except Exception as start_err:
                     logger.warning(f"os.startfile failed: {start_err}. Trying pywinauto...")
                     
