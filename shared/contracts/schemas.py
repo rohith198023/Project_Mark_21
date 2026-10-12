@@ -130,6 +130,7 @@ class RoutingResponse(BaseModel):
 class ActionResult(BaseModel):
     success: bool = Field(..., description="Whether execution of task completed without errors")
     output: str = Field(..., description="Standard output results of the task")
+    url: Optional[str] = Field(None, description="URL if external web resource or media was opened")
     error: Optional[str] = Field(None, description="Detailed error description if execution failed")
     match_type: Optional[str] = Field(None, description="Fuzzy/exact/fallback category for application resolution")
     resolved_app: Optional[str] = Field(None, description="The resolved application name or executable path")

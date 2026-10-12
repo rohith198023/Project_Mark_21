@@ -237,6 +237,50 @@ def get_first_yt_video(query: str) -> str:
         logger.warning(f"Error fetching direct YouTube video: {e}")
     return search_url
 
+def launch_url_in_browser(url: str) -> bool:
+    """Launches a URL in the browser and brings the browser window to the foreground."""
+    import subprocess
+    import ctypes
+
+    # 1. Start URL via shell handler
+    try:
+        os.startfile(url)
+    except Exception as e:
+        logger.warning(f"os.startfile failed: {e}")
+
+    # 2. Also try launching via browser executable directly if available
+    edge_paths = [
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+    ]
+    chrome_paths = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+    ]
+    for b_path in edge_paths + chrome_paths:
+        if os.path.exists(b_path):
+            try:
+                subprocess.Popen([b_path, url])
+                break
+            except Exception:
+                pass
+
+    # 3. Bring active browser window to foreground on default desktop
+    try:
+        import win32gui, win32service, win32con
+        hdesk = win32service.OpenDesktop('default', 0, False, win32con.GENERIC_ALL)
+        def cb(hwnd, _):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd).lower()
+                if any(b in title for b in ["microsoft edge", "google chrome"]):
+                    ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+        win32gui.EnumDesktopWindows(hdesk, cb, None)
+    except Exception as win_err:
+        logger.warning(f"Failed to focus browser window: {win_err}")
+
+    return True
+
 def generate_text_content(prompt_text: str) -> str:
     """Generates content using Groq if available, or returns clean structured code/text."""
     try:
@@ -743,13 +787,15 @@ def execute_desktop_action(task: Task):
                     if yt_query and yt_query.lower() not in ("youtube", "video", "song"):
                         logger.info(f"YouTube playback requested for query: '{yt_query}'")
                         v_url = get_first_yt_video(yt_query)
-                        os.startfile(v_url)
+                        launch_url_in_browser(v_url)
                         strategy_used = f"Opened YouTube and started playing '{yt_query}'"
                         output_text = f"Opened YouTube and started playing '{yt_query}' according to your command."
                     else:
-                        os.startfile("https://www.youtube.com")
+                        v_url = "https://www.youtube.com"
+                        launch_url_in_browser(v_url)
                         strategy_used = "Opened YouTube"
                         output_text = "Opened YouTube according to your command."
+                    resolved_path_or_uri = v_url
             except Exception as e:
                 error_msg = f"URI launch failed: {str(e)}"
                 logger.warning(error_msg)
@@ -909,6 +955,7 @@ def execute_desktop_action(task: Task):
             return ActionResult(
                 success=True,
                 output=final_output,
+                url=resolved_path_or_uri if (resolved_path_or_uri and str(resolved_path_or_uri).startswith("http")) else None,
                 match_type=match_type,
                 resolved_app=resolved_path_or_uri,
                 launch_strategy=strategy_used,

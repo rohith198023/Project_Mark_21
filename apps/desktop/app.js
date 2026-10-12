@@ -316,8 +316,33 @@ async function handleChatSubmit(e) {
         a => a.service === 'orchestrator' && a.action === 'task_routing'
       );
       const task = routingAction ? routingAction.output : null;
+
+      // Detect media or web launch URL from action outputs
+      let launchUrl = null;
+      if (data.actions_taken) {
+        for (const act of data.actions_taken) {
+          if (act.output && act.output.url) {
+            launchUrl = act.output.url;
+            break;
+          }
+        }
+      }
       
-      appendMessage(data.response, 'assistant', task);
+      // Fallback check: if message indicates YouTube
+      if (!launchUrl && (messageText.toLowerCase().includes('youtube') || (task && task.target === 'youtube'))) {
+        launchUrl = 'https://www.youtube.com';
+      }
+
+      // Automatically launch in active browser
+      if (launchUrl) {
+        try {
+          window.open(launchUrl, '_blank');
+        } catch (popupErr) {
+          console.warn('Popup notice:', popupErr);
+        }
+      }
+      
+      appendMessage(data.response, 'assistant', task, launchUrl);
       renderTraceLog(data.actions_taken);
       
       if (task && task.status === 'requires_confirmation') {
@@ -335,7 +360,7 @@ async function handleChatSubmit(e) {
 }
 
 // Append Chat Message HTML
-function appendMessage(text, sender, task = null) {
+function appendMessage(text, sender, task = null, launchUrl = null) {
   const container = document.getElementById('chat-messages');
   const msgEl = document.createElement('div');
   msgEl.className = `message ${sender}-message`;
@@ -390,6 +415,31 @@ function appendMessage(text, sender, task = null) {
     const cardContainer = document.createElement('div');
     cardContainer.innerHTML = taskCardHtml;
     contentEl.appendChild(cardContainer);
+  }
+
+  // Inject interactive media / video launch player if a URL was opened
+  if (launchUrl) {
+    const mediaActionBox = document.createElement('div');
+    mediaActionBox.className = 'media-action-box';
+    const ytMatch = launchUrl.match(/(?:watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    if (ytMatch) {
+      const vidId = ytMatch[1];
+      mediaActionBox.innerHTML = `
+        <div class="video-preview-container">
+          <iframe class="yt-embed-player" src="https://www.youtube-nocookie.com/embed/${vidId}?autoplay=1" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          <div class="media-btn-row">
+            <a href="${launchUrl}" target="_blank" class="media-launch-btn">▶️ Open Video in YouTube Tab</a>
+          </div>
+        </div>
+      `;
+    } else {
+      mediaActionBox.innerHTML = `
+        <div class="media-btn-row">
+          <a href="${launchUrl}" target="_blank" class="media-launch-btn">🔗 Open Link: ${launchUrl}</a>
+        </div>
+      `;
+    }
+    contentEl.appendChild(mediaActionBox);
   }
   
   if (sender === 'assistant') {
