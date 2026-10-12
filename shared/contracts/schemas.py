@@ -52,6 +52,8 @@ class IntentType(str, Enum):
     TRANSCRIBE = "transcribe"
     # System intents
     SYSTEM_CONTROL = "system_control"
+    # Conversational & generic tasks
+    CONVERSATION = "conversation"
     # Misc
     UNKNOWN = "unknown"
 

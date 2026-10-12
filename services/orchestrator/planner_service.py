@@ -78,6 +78,7 @@ Your ONLY job is to convert a raw user instruction into a structured JSON task o
 - speak           → text-to-speech output
 - transcribe      → speech-to-text input
 - system_control  → system-level actions (shutdown, restart, volume, etc.)
+- conversation    → conversational queries, greetings (e.g. 'hello I am audible', 'hi jarvis'), questions, explanations, coding, writing, math, reasoning, or generic assistant tasks that do not manipulate OS windows or search engines
 - unknown         → intent cannot be determined
 
 ## Risk Classification Rules
@@ -91,6 +92,18 @@ Your ONLY job is to convert a raw user instruction into a structured JSON task o
 - requires_confirmation=false for everything else
 
 ## Few-Shot Examples
+
+Input: "hello I am audible"
+Output: {"schema_version":"1.0","raw_user_input":"hello I am audible","intent":"conversation","target_agent":"system","action":"reply","target":null,"parameters":{},"confidence":0.99,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"User is greeting and testing audio audibility; conversational reply required."}
+
+Input: "open whatsapp and text someone"
+Output: {"schema_version":"1.0","raw_user_input":"open whatsapp and text someone","intent":"open_app","target_agent":"desktop","action":"open","target":"whatsapp","parameters":{},"confidence":0.96,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"User wants to open WhatsApp to message someone."}
+
+Input: "what is 25 * 14?"
+Output: {"schema_version":"1.0","raw_user_input":"what is 25 * 14?","intent":"conversation","target_agent":"system","action":"reply","target":null,"parameters":{},"confidence":0.99,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"Generic calculation question."}
+
+Input: "explain quantum computing in 2 lines"
+Output: {"schema_version":"1.0","raw_user_input":"explain quantum computing in 2 lines","intent":"conversation","target_agent":"system","action":"reply","target":null,"parameters":{},"confidence":0.99,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"Generic explanation query."}
 
 Input: "open downloads folder"
 Output: {"schema_version":"1.0","raw_user_input":"open downloads folder","intent":"open_folder","target_agent":"desktop","action":"open","target":"downloads","parameters":{},"confidence":0.96,"requires_confirmation":false,"risk_level":"low","reasoning_summary":"User wants to open the downloads folder on the desktop."}
@@ -254,3 +267,48 @@ def plan(raw_input: str, max_retries: int = 2) -> Union[PlannerOutput, PlannerFa
         retry_count=retry_count,
         fallback_used=False,
     )
+
+
+def generate_conversational_response(raw_input: str, system_context: str = None) -> str:
+    """
+    Directly answers conversational queries, greetings, questions, reasoning,
+    and generic assistant tasks using Groq LLM with a friendly, intelligent JARVIS persona.
+    """
+    api_key = settings.groq_api_key
+    if not api_key:
+        return "I am JARVIS. How may I assist you today?"
+
+    try:
+        from groq import Groq
+        client = Groq(api_key=api_key)
+        model = settings.groq_model
+
+        system_prompt = (
+            "You are JARVIS (Just A Rather Very Intelligent System), an articulate, polite, "
+            "warm, and highly capable AI assistant.\n"
+            "Guidelines:\n"
+            "- If the user greets you or checks if their voice/microphone is working or audible "
+            "(e.g., 'hello I am audible', 'can you hear me'), warmly confirm that they are loud "
+            "and clear, and ask how you can help them.\n"
+            "- For questions, general tasks, coding, calculations, or explanations, provide direct, "
+            "accurate, well-crafted, and concise answers.\n"
+            "- Keep responses conversational, natural, and friendly for both voice readout and text display.\n"
+            "- Never mention internal routing, schemas, or confidence percentages."
+        )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": raw_input}
+        ]
+
+        completion = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=600,
+            top_p=0.95,
+        )
+        return (completion.choices[0].message.content or "").strip()
+    except Exception as e:
+        logger.error(f"[Planner] Conversational generation error: {e}")
+        return "I hear you clearly, sir. How can I assist you with your tasks today?"

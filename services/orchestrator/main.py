@@ -532,19 +532,18 @@ async def run_task_execution(task: Task) -> tuple[str, List[Dict[str, Any]]]:
         })
         response_text += f" [Routed to {task.target_agent} agent]"
 
-    # Core response construction
-    base_response = f"I received your request: '{task.user_input}'."
-    if "hello" in task.user_input.lower() or "hi" in task.user_input.lower():
-        response_text = " Hello! How can I assist you with your local tasks today?" + response_text
-    else:
-        response_text = f" Task {task.id} routed successfully to '{task.target_agent}'." + response_text
-
     # Update status to Success if not already set to FAILED
     if task.status != TaskStatus.FAILED:
         task.status = TaskStatus.SUCCESS
     task.updated_at = datetime.utcnow().isoformat() + "Z"
 
-    return f"{base_response}{response_text}", actions_taken
+    clean_text = response_text.strip()
+    if clean_text.startswith("[") and clean_text.endswith("]"):
+        clean_text = clean_text[1:-1].strip()
+    if not clean_text:
+        clean_text = f"Task completed successfully on {task.target_agent} agent."
+
+    return clean_text, actions_taken
 
 
 # --------------------------------------------------------------------------- #
@@ -586,7 +585,7 @@ async def coordinate(request: ChatRequest):
     actions_taken.append(planner_log)
 
     # ------------------------------------------------------------------ #
-    # Stage 2: Confidence gate + Risk gate (planner succeeded)
+    # Stage 2: Intent routing + Conversational AI gate + Risk gate
     # ------------------------------------------------------------------ #
     if isinstance(planner_result, PlannerOutput):
         confidence = planner_result.confidence
@@ -594,34 +593,46 @@ async def coordinate(request: ChatRequest):
         clarify_threshold = settings.planner_confidence_clarify_threshold
 
         logger.info(
-            f"[Planner gate] confidence={confidence:.2f} "
-            f"risk={planner_result.risk_level} "
+            f"[Planner gate] intent={planner_result.intent} target_agent={planner_result.target_agent} "
+            f"confidence={confidence:.2f} risk={planner_result.risk_level} "
             f"requires_confirmation={planner_result.requires_confirmation}"
         )
 
-        # Low confidence — reject safely without execution
-        if confidence < clarify_threshold:
-            logger.warning(f"[Planner gate] REJECT — confidence {confidence:.2f} below threshold {clarify_threshold}")
+        # 2a. Conversational / Q&A / Generic Assistant Task handling
+        # Direct conversational response if it's conversation, general question, audio check, or generic task
+        is_conversational = (
+            planner_result.intent in ("conversation", "chat", "ask", "greeting", "reply", "general_qa")
+            or planner_result.target_agent in (TargetAgent.SYSTEM, TargetAgent.UNKNOWN)
+            or (confidence < route_threshold and not any(kw in request.message.lower() for kw in [
+                "open", "close", "launch", "search", "browse", "screenshot", "remember",
+                "recall", "terminate", "delete", "whatsapp", "teams", "notepad", "chrome",
+                "calc", "folder"
+            ]))
+        )
+
+        if is_conversational:
+            logger.info(f"[Planner gate] Responding via Conversational AI: '{request.message}'")
+            ans = planner_service.generate_conversational_response(request.message)
+            actions_taken.append({
+                "service": "orchestrator",
+                "action": "conversational_ai",
+                "status": "success",
+                "output": {"reply": ans}
+            })
             return ChatResponse(
-                response=(
-                    f"I'm not confident enough to act on that request "
-                    f"(confidence: {confidence:.0%}). "
-                    f"Could you rephrase or be more specific? "
-                    f"For example: 'open notepad', 'search best phones', 'close teams'."
-                ),
+                response=ans,
                 session_id=session_id,
                 actions_taken=actions_taken
             )
 
-        # Medium confidence — ask for clarification
+        # 2b. Low confidence OS action — ask for clarification
         if confidence < route_threshold:
             logger.info(f"[Planner gate] CLARIFY — confidence {confidence:.2f} below route threshold {route_threshold}")
             intent_hint = planner_result.reasoning_summary or f"intent={planner_result.intent}"
             return ChatResponse(
                 response=(
-                    f"I think you want to: {intent_hint} "
-                    f"(confidence: {confidence:.0%}). "
-                    f"Can you confirm, or rephrase your request?"
+                    f"I think you want to: {intent_hint}. "
+                    f"Could you confirm or rephrase with more specific details?"
                 ),
                 session_id=session_id,
                 actions_taken=actions_taken
@@ -697,7 +708,19 @@ async def coordinate(request: ChatRequest):
         "status": "failed" if task.status == TaskStatus.REQUIRES_CONFIRMATION else "success",
         "output": task.model_dump()
     }
-    actions_taken.append(routing_log_fallback)
+    if task.target_agent in ("orchestrator", "unknown"):
+        ans = planner_service.generate_conversational_response(request.message)
+        actions_taken.append({
+            "service": "orchestrator",
+            "action": "conversational_ai_fallback",
+            "status": "success",
+            "output": {"reply": ans}
+        })
+        return ChatResponse(
+            response=ans,
+            session_id=session_id,
+            actions_taken=actions_taken
+        )
 
     if task.status == TaskStatus.REQUIRES_CONFIRMATION:
         logger.warning(f"[Security] Task {task.id} requires user confirmation (keyword fallback path).")
