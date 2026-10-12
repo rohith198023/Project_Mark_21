@@ -4,3 +4,5 @@ pydantic>=2.0
 httpx>=0.24.0
 pywinauto>=0.6.8; sys_platform == "win32"
 pyautogui>=0.9.54; sys_platform == "win32"
+pyperclip>=1.8.2; sys_platform == "win32"
+groq>=0.9.0
