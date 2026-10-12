@@ -448,6 +448,31 @@ def readyz():
         checks={"mode": mode, "platform": sys.platform}
     )
 
+@app.post("/api/v1/desktop/speak")
+def speak_out_loud(payload: Dict[str, Any]):
+    """Speaks text out loud directly through Windows audio hardware using SAPI SpVoice."""
+    text = payload.get("text", "")
+    if not text:
+        return {"success": False, "error": "No text provided"}
+    
+    clean_text = re.sub(r"\[.*?\]", "", text).replace("link", "").strip()
+    logger.info(f"Speaking aloud via Windows SAPI: '{clean_text[:60]}...'")
+    
+    def _speak_worker():
+        try:
+            import pythoncom
+            pythoncom.CoInitialize()
+            import win32com.client
+            speaker = win32com.client.Dispatch("SAPI.SpVoice")
+            speaker.Speak(clean_text)
+        except Exception as e:
+            logger.error(f"SAPI speak error: {e}")
+            
+    import threading
+    t = threading.Thread(target=_speak_worker, daemon=True)
+    t.start()
+    return {"success": True, "spoken_text": clean_text[:60]}
+
 @app.post("/api/v1/desktop/execute", response_model=ActionResult)
 def execute_desktop_action(task: Task):
     """Executes a parsed desktop command (launching, closing, or managing apps)."""
@@ -505,6 +530,7 @@ def execute_desktop_action(task: Task):
 
                 # Special automation for WhatsApp contact & messaging
                 if matched_entry["canonical"] == "whatsapp" and pyautogui_available:
+                    import urllib.parse
                     params = task.parameters or {}
                     wa_msg = params.get("message") or params.get("text")
                     wa_contact = params.get("contact") or params.get("recipient")
@@ -521,27 +547,60 @@ def execute_desktop_action(task: Task):
                             if m2:
                                 wa_contact = m2.group(1).strip()
 
-                    if wa_contact or wa_msg:
+                    # Filter out generic words like 'someone' or 'anyone'
+                    generic_recipients = {"someone", "anyone", "somebody", "anybody", "person", "friend"}
+                    if wa_contact and wa_contact.lower().strip() in generic_recipients:
+                        wa_contact = None
+
+                    # If phone number (all digits)
+                    if wa_contact and wa_contact.replace("+", "").replace("-", "").replace(" ", "").isdigit() and wa_msg:
+                        try:
+                            clean_phone = wa_contact.replace("+", "").replace("-", "").replace(" ", "")
+                            phone_uri = f"whatsapp://send?phone={clean_phone}&text={urllib.parse.quote(wa_msg)}"
+                            os.startfile(phone_uri)
+                            strategy_used = f"WhatsApp opened direct chat with +{clean_phone} and prepared message: '{wa_msg}'"
+                        except Exception as e:
+                            logger.warning(f"Phone URI failed: {e}")
+
+                    # If no specific contact, but there is a message (or generic 'someone')
+                    elif not wa_contact and wa_msg:
+                        try:
+                            send_uri = f"whatsapp://send?text={urllib.parse.quote(wa_msg)}"
+                            os.startfile(send_uri)
+                            strategy_used = f"WhatsApp opened with prepared message: '{wa_msg}' (select contact to send)"
+                        except Exception as e:
+                            logger.warning(f"Send URI failed: {e}")
+
+                    # If generic 'someone' without message: open new chat / search
+                    elif not wa_contact and not wa_msg and "text" in user_input_raw.lower():
+                        time.sleep(1.8)
+                        try:
+                            pyautogui.hotkey('ctrl', 'n')
+                            strategy_used = "Opened WhatsApp and launched New Chat selector"
+                        except Exception as e:
+                            strategy_used = "Opened WhatsApp"
+
+                    # If contact name is given (e.g. 'rahul', 'motati', 'mom')
+                    elif wa_contact:
                         logger.info(f"WhatsApp automation: contact='{wa_contact}', message='{wa_msg}'")
-                        time.sleep(1.2)
+                        time.sleep(2.0)
                         try:
                             import pyperclip
-                            if wa_contact:
-                                pyautogui.hotkey('ctrl', 'f')
-                                time.sleep(0.4)
-                                pyperclip.copy(wa_contact.strip(' .'))
-                                pyautogui.hotkey('ctrl', 'v')
-                                time.sleep(0.8)
-                                pyautogui.press('enter')
-                                time.sleep(0.5)
+                            pyautogui.hotkey('ctrl', 'f')
+                            time.sleep(0.5)
+                            pyperclip.copy(wa_contact.strip(' .'))
+                            pyautogui.hotkey('ctrl', 'v')
+                            time.sleep(1.0)
+                            pyautogui.press('enter')
+                            time.sleep(0.6)
                             if wa_msg:
                                 pyperclip.copy(wa_msg.strip(' .'))
                                 pyautogui.hotkey('ctrl', 'v')
                                 time.sleep(0.4)
                                 pyautogui.press('enter')
-                                strategy_used = f"WhatsApp sent to '{wa_contact or 'chat'}': '{wa_msg}'"
+                                strategy_used = f"WhatsApp opened chat with '{wa_contact}' and sent: '{wa_msg}'"
                             else:
-                                strategy_used = f"WhatsApp opened contact '{wa_contact}'"
+                                strategy_used = f"WhatsApp opened chat with '{wa_contact}'"
                         except Exception as auto_err:
                             logger.warning(f"WhatsApp typing automation warning: {auto_err}")
             except Exception as e:

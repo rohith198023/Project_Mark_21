@@ -69,20 +69,39 @@ function cleanTextForSpeech(text) {
 }
 
 function speakText(text) {
-  if (!('speechSynthesis' in window)) return;
   const toSpeak = cleanTextForSpeech(text);
   if (!toSpeak) return;
   
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(toSpeak);
-  utterance.rate = 1.0;
-  utterance.pitch = 1.0;
-  
-  const voices = window.speechSynthesis.getVoices();
-  const preferredVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('David') || v.name.includes('Guy')));
-  if (preferredVoice) utterance.voice = preferredVoice;
-  
-  window.speechSynthesis.speak(utterance);
+  // 1. Trigger Native Windows SAPI Speech through physical speakers
+  try {
+    fetch('http://localhost:8005/api/v1/desktop/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: toSpeak }),
+      mode: 'cors'
+    }).catch(e => console.warn('Desktop SAPI speak error:', e));
+  } catch (err) {
+    console.warn('Native SAPI speak failed:', err);
+  }
+
+  // 2. Also trigger Browser Web Speech Synthesis
+  if ('speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(toSpeak);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      
+      const voices = window.speechSynthesis.getVoices();
+      if (voices && voices.length > 0) {
+        const preferredVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('David') || v.name.includes('Guy')));
+        if (preferredVoice) utterance.voice = preferredVoice;
+      }
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn('Browser SpeechSynthesis error:', e);
+    }
+  }
 }
 
 function setupSpeechRecognition() {
