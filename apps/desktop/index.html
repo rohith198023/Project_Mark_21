@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS Control Panel & Assistant</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <div class="logo-icon"></div>
+        <div class="logo-text">
+          <h1>JARVIS</h1>
+          <span>LOCAL PERSONAL COGNITIVE ENGINE</span>
+        </div>
+      </div>
+      <div class="gateway-status">
+        <span class="pulse-indicator status-offline" id="gateway-indicator"></span>
+        <span id="gateway-status-text">GATEWAY OFFLINE</span>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="app-workspace">
+      <!-- Left sidebar: Services Grid -->
+      <section class="sidebar-services">
+        <div class="section-title">
+          <h2>SYSTEM MONITOR</h2>
+          <span class="sub-title">Docker Orchestration Node</span>
+        </div>
+        
+        <div class="services-grid">
+          <!-- Gateway API -->
+          <div class="service-card" id="card-api">
+            <div class="service-info">
+              <span class="service-port">8000</span>
+              <h3>API Gateway</h3>
+              <p>apps/api</p>
+            </div>
+            <div class="service-badge status-unknown">CONNECTING</div>
+          </div>
+
+          <!-- Orchestrator -->
+          <div class="service-card" id="card-orchestrator">
+            <div class="service-info">
+              <span class="service-port">8001</span>
+              <h3>Orchestrator</h3>
+              <p>services/orchestrator</p>
+            </div>
+            <div class="service-badge status-unknown">CONNECTING</div>
+          </div>
+
+          <!-- Memory -->
+          <div class="service-card" id="card-memory">
+            <div class="service-info">
+              <span class="service-port">8002</span>
+              <h3>Memory Service</h3>
+              <p>services/memory</p>
+            </div>
+            <div class="service-badge status-unknown">CONNECTING</div>
+          </div>
+
+          <!-- Browser -->
+          <div class="service-card" id="card-browser">
+            <div class="service-info">
+              <span class="service-port">8003</span>
+              <h3>Browser Service</h3>
+              <p>services/browser</p>
+            </div>
+            <div class="service-badge status-unknown">CONNECTING</div>
+          </div>
+
+          <!-- Voice -->
+          <div class="service-card" id="card-voice">
+            <div class="service-info">
+              <span class="service-port">8004</span>
+              <h3>Voice Service</h3>
+              <p>services/voice</p>
+            </div>
+            <div class="service-badge status-unknown">CONNECTING</div>
+          </div>
+
+          <!-- Desktop Agent -->
+          <div class="service-card" id="card-desktop">
+            <div class="service-info">
+              <span class="service-port">8005</span>
+              <h3>Desktop Agent</h3>
+              <p>services/desktop</p>
+            </div>
+            <div class="service-badge status-unknown">CONNECTING</div>
+          </div>
+
+          <!-- Qdrant -->
+          <div class="service-card" id="card-qdrant">
+            <div class="service-info">
+              <span class="service-port">6333</span>
+              <h3>Qdrant Vector DB</h3>
+              <p>qdrant</p>
+            </div>
+            <div class="service-badge status-unknown">CONNECTING</div>
+          </div>
+
+          <!-- Postgres -->
+          <div class="service-card" id="card-postgres">
+            <div class="service-info">
+              <span class="service-port">5432</span>
+              <h3>PostgreSQL</h3>
+              <p>postgres</p>
+            </div>
+            <div class="service-badge status-unknown">CONNECTING</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Center: Assistant Chat Pane -->
+      <section class="chat-container">
+        <div class="chat-header">
+          <div class="chat-header-title">
+            <h2>ASSISTANT CORE</h2>
+            <span class="chat-session" id="session-id-label">Session ID: Initializing...</span>
+          </div>
+          <div class="chat-header-controls">
+            <button type="button" id="tts-toggle-btn" class="voice-toggle-btn active" title="Toggle Voice Response (TTS)">
+              <span id="tts-icon">🔊</span>
+              <span id="tts-label">Voice: ON</span>
+            </button>
+          </div>
+        </div>
+        
+        <div class="chat-messages" id="chat-messages">
+          <!-- Welcome Message -->
+          <div class="message system-message">
+            <div class="message-content">
+              <strong>System Core Status:</strong> JARVIS monorepo skeleton boots successfully. 
+              API Gateway proxy and health modules are online. Send a query below to trigger coordinate mapping.
+              <div class="prompt-suggestions">
+                <button class="suggest-btn" onclick="usePrompt('Hello! Who are you?')">Say Hello</button>
+                <button class="suggest-btn" onclick="usePrompt('Search Google for the latest space launch details')">Trigger Browser Agent</button>
+                <button class="suggest-btn" onclick="usePrompt('Remember that my favorite server code is Go')">Trigger Memory Cache</button>
+                <button class="suggest-btn" onclick="usePrompt('Can you speak this message out loud?')">Trigger Voice Synthesizer</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <form class="chat-input-area" id="chat-form">
+          <button type="button" id="mic-btn" class="mic-btn" title="Click to Speak (Speech-to-Text)">
+            <svg class="mic-svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+            </svg>
+            <span class="mic-pulse"></span>
+          </button>
+          <input type="text" id="user-input" placeholder="Type or click 🎙️ to speak commands..." autocomplete="off" required>
+          <button type="submit" id="send-btn">
+            <span class="btn-text">SEND</span>
+            <span class="btn-icon"></span>
+          </button>
+        </form>
+      </section>
+
+      <!-- Right Panel: Trace Logging -->
+      <section class="trace-panel">
+        <div class="section-title">
+          <h2>ORCHESTRATOR TRACE</h2>
+          <span class="sub-title">Step-by-step Execution Log</span>
+        </div>
+        <div class="trace-log" id="trace-log">
+          <div class="trace-placeholder">
+            Waiting for coordinates to trace... Query the core assistant to print background RPC requests.
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  
+  <!-- Glassmorphic Confirmation Modal -->
+  <div class="modal-overlay" id="confirm-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-icon">⚠️</div>
+        <div class="modal-title">
+          <h3>Confirmation Required</h3>
+          <p id="modal-task-id">Task: ID</p>
+        </div>
+      </div>
+      <div class="modal-body">
+        <p>This command involves high-risk actions. Do you want to allow execution?</p>
+        <div class="modal-task-info">
+          <div class="modal-task-row">
+            <span class="modal-task-label">Command:</span>
+            <span class="modal-task-val" id="modal-task-command">delete whatsapp</span>
+          </div>
+          <div class="modal-task-row">
+            <span class="modal-task-label">Target Agent:</span>
+            <span class="modal-task-val" id="modal-task-agent">desktop</span>
+          </div>
+          <div class="modal-task-row">
+            <span class="modal-task-label">Risk Level:</span>
+            <span class="modal-task-val" id="modal-task-risk">HIGH</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn btn-block" id="modal-cancel-btn">Block & Cancel</button>
+        <button class="modal-btn btn-allow" id="modal-confirm-btn">Allow Execution</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

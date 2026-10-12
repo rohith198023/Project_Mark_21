@@ -1,0 +1,204 @@
+version: '3.8'
+
+services:
+  # Relational Database for structured logs, configuration, and state
+  postgres:
+    image: postgres:16-alpine
+    container_name: jarvis-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jarvis_db}
+      POSTGRES_USER: ${POSTGRES_USER:-jarvis_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jarvis_secure_pass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Vector Database for semantic search and context indexing (Memory)
+  qdrant:
+    image: qdrant/qdrant:v1.9.0
+    container_name: jarvis-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # API Gateway: Exposes public REST router and health monitor on port 8000
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: jarvis-api-gateway
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - ENV=development
+      - DEBUG=true
+      - ORCHESTRATOR_HOST=orchestrator
+      - ORCHESTRATOR_PORT=8001
+      - MEMORY_HOST=memory
+      - MEMORY_PORT=8002
+      - BROWSER_HOST=browser
+      - BROWSER_PORT=8003
+      - VOICE_HOST=voice
+      - VOICE_PORT=8004
+      - DESKTOP_HOST=host.docker.internal
+      - DESKTOP_PORT=8005
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      orchestrator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Orchestrator coordinating core workflow logic on port 8001
+  orchestrator:
+    build:
+      context: .
+      dockerfile: services/orchestrator/Dockerfile
+    container_name: jarvis-orchestrator
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+      - MEMORY_HOST=memory
+      - MEMORY_PORT=8002
+      - BROWSER_HOST=browser
+      - BROWSER_PORT=8003
+      - VOICE_HOST=voice
+      - VOICE_PORT=8004
+      - DESKTOP_HOST=host.docker.internal
+      - DESKTOP_PORT=8005
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL}
+      - PLANNER_CONFIDENCE_ROUTE=${PLANNER_CONFIDENCE_ROUTE:-0.80}
+      - PLANNER_CONFIDENCE_CLARIFY=${PLANNER_CONFIDENCE_CLARIFY:-0.50}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      memory:
+        condition: service_healthy
+      browser:
+        condition: service_healthy
+      voice:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Memory Service: Bridges semantic embeddings and database transactions on port 8002
+  memory:
+    build:
+      context: .
+      dockerfile: services/memory/Dockerfile
+    container_name: jarvis-memory-service
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - PORT=8002
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-jarvis_user}:${POSTGRES_PASSWORD:-jarvis_secure_pass}@postgres:5432/${POSTGRES_DB:-jarvis_db}
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/healthz')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Browser Service: Automated web agent driving headless Chromium on port 8003
+  browser:
+    build:
+      context: .
+      dockerfile: services/browser/Dockerfile
+    container_name: jarvis-browser-service
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      - PORT=8003
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/healthz')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Voice Service: Audio intake and voice response processing on port 8004
+  voice:
+    build:
+      context: .
+      dockerfile: services/voice/Dockerfile
+    container_name: jarvis-voice-service
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      - PORT=8004
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/healthz')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Desktop Service: Windows desktop control and automation service on port 8005
+  # desktop:
+  #   build:
+  #     context: .
+  #     dockerfile: services/desktop/Dockerfile
+  #   container_name: jarvis-desktop-service
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8005:8005"
+  #   environment:
+  #     - PORT=8005
+  #   healthcheck:
+  #     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8005/healthz')"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 5
+
+  # Desktop Console: Serving responsive glassmorphism web console on port 3000
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/desktop/Dockerfile
+    container_name: jarvis-frontend-console
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    driver: local
+  qdrant_data:
+    driver: local

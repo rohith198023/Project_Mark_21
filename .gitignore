@@ -1,0 +1,31 @@
+# Environments & Secrets (CRITICAL: Do not commit API keys or passwords)
+.env
+.env.local
+*.env
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Screenshots & Logs
+*.log
+screenshots/
+shared/audio/outputs/*.wav
+shared/audio/outputs/*.mp3
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
